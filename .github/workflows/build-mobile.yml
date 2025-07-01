@@ -1,0 +1,81 @@
+# .github/workflows/build-mobile.yml
+
+##
+## Workflow: Build Flutter Mobile Apps for Android & iOS
+##
+## - يثبت Flutter SDK
+## - يشيل الاعتماديات (pub get)
+## - يبني APK لـ Android
+## - يبني iOS app archive (XCArchive) دون كود ساين
+## - يرفع الأرتيفاكتات
+##
+
+name: Build Mobile Apps
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build_android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK (release)
+        run: flutter build apk --release
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  build_ios:
+    name: Build iOS Archive
+    runs-on: macos-latest
+    needs: build_android
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS archive
+        run: |
+          flutter build ios --release --no-codesign
+          xcodebuild -quiet -scheme Runner -workspace ios/Runner.xcworkspace \
+            -configuration Release \
+            -archivePath build/Runner.xcarchive archive
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath build/ipa
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ github.run_number }}
+          path: build/ipa/*.ipa
