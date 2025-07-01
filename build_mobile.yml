@@ -1,0 +1,152 @@
+##
+
+## Workflow: Build Release Binaries for Windows, Linux & macOS
+
+##
+
+## This workflow installs dependencies, lints, tests, and builds executables
+
+## for multiple OSes and Python versions, then uploads artifacts.
+
+##
+
+name: Build Release Binaries
+
+on:
+push:
+branches: \[ main ]
+workflow\_dispatch:
+
+jobs:
+build:
+strategy:
+matrix:
+os: \[windows-latest, ubuntu-latest, macos-latest]
+python-version: \[3.7, 3.8, 3.9, 3.10, 3.11]
+runs-on: \${{ matrix.os }}
+
+```
+steps:
+  - name: Checkout code
+    uses: actions/checkout@v4
+
+  - name: Unzip OffloadHelper zip
+    run: |
+      sudo apt-get update && sudo apt-get install -y unzip || true
+      unzip "OffloadHelper(2).zip" -d offload_helper
+
+  # ثم تثبيت Flutter والاعتماديات
+  - name: Set up Flutter
+    uses: subosito/flutter-action@v2
+    with:
+      flutter-version: 'stable'
+
+  - name: Install dependencies
+    run: flutter pub get
+
+  - name: Build APK (release)
+    run: flutter build apk --release
+
+  - name: Upload Android artifact
+    uses: actions/upload-artifact@v4
+    with:
+      name: android-apk-${{ github.run_number }}
+      path: build/app/outputs/flutter-apk/app-release.apk
+```
+
+build\_ios:
+name: Build iOS Archive
+runs-on: macos-latest
+needs: build\_android
+
+```
+steps:
+  - name: Checkout code
+    uses: actions/checkout@v4
+
+  - name: Unzip OffloadHelper zip
+    run: |
+      brew install unzip || true
+      unzip "OffloadHelper(2).zip" -d offload_helper
+
+  - name: Set up Flutter
+    uses: subosito/flutter-action@v2
+    with:
+      flutter-version: 'stable'
+
+  - name: Install dependencies
+    run: flutter pub get
+
+  - name: Build iOS archive
+    run: |
+      flutter build ios --release --no-codesign
+      xcodebuild -quiet -scheme Runner -workspace ios/Runner.xcworkspace \
+        -configuration Release \
+        -archivePath build/Runner.xcarchive archive
+
+  - name: Export IPA
+    run: |
+      xcodebuild -exportArchive \
+        -archivePath build/Runner.xcarchive \
+        -exportOptionsPlist ios/ExportOptions.plist \
+        -exportPath build/ipa
+
+  - name: Upload iOS artifact
+    uses: actions/upload-artifact@v4
+    with:
+      name: ios-ipa-${{ github.run_number }}
+      path: build/ipa/*.ipa
+  - name: Checkout code
+    uses: actions/checkout@v4
+
+  - name: Cache pip dependencies
+    uses: actions/cache@v3
+    with:
+      path: ~/.cache/pip
+      key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+      restore-keys: |
+        ${{ runner.os }}-pip-
+
+  - name: Set up Python
+    uses: actions/setup-python@v4
+    with:
+      python-version: ${{ matrix.python-version }}
+
+  - name: Install dependencies
+    run: |
+      pip install --upgrade pip==23.2.1 wheel setuptools
+      if [ -f requirements.txt ]; then pip install --retries 3 --timeout 30 -r requirements.txt; else pip install --retries 3 --timeout 30 -e .; fi
+      pip install pyinstaller==5.13.0
+
+  - name: Run Linter
+    run: |
+      pip install flake8
+      flake8 .
+
+  - name: Run Tests
+    run: python -m unittest discover tests
+
+  - name: Build executable
+    shell: bash
+    run: |
+      case "${{ matrix.os }}" in
+        windows-latest)
+          pyinstaller --onefile --name OffloadHelper main.py
+          ;;
+        ubuntu-latest)
+          pyinstaller --onefile --name offloadhelper_linux main.py
+          ;;
+        macos-latest)
+          pyinstaller --onefile --target-arch x86_64 --target-arch arm64 --name offloadhelper_macos main.py
+          ;;
+      esac
+
+  - name: Upload build artifacts
+    uses: actions/upload-artifact@v4
+    with:
+      name: offloadhelper-${{ matrix.os }}-py${{ matrix.python-version }}-${{ github.run_number }}
+      path: |
+        dist/OffloadHelper.exe
+        dist/offloadhelper_linux
+        dist/offloadhelper_macos
+```
