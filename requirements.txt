@@ -1,0 +1,8 @@
+Flask
+flask_cors
+requests
+psutil
+zeroconf
+cryptography
+numpy
+networkx
